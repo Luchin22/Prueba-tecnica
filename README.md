@@ -272,3 +272,7 @@ Implementar pipeline con:
 - Este proyecto implementa las mejores prácticas de microservicios con Spring Boot
 
 
+## Este proyecto se baso en este perfil Semi Senior
+- SemiSenior: Separar en 2 microservicios, agrupando (Cliente, Persona) y (Cuenta, 
+Movimientos) donde se contemple una comunicación asincrónica entre los 2 microservicios. 
+Cumplir las funcionalidades: F1, F2, F3, F4, F5 deseable la funcionalidad F6. 
