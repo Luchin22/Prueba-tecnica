@@ -1,0 +1,177 @@
+services:
+  # base de datos clientes
+  db-clientes:
+    image: postgres:15-alpine
+    container_name: banco-db-clientes
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: db_clientes
+      POSTGRES_USER: banco_user
+      POSTGRES_PASSWORD: banco_pass_2024
+      PGDATA: /var/lib/postgresql/data/pgdata
+    ports:
+      - "5432:5432"
+    volumes:
+      - db-clientes-data:/var/lib/postgresql/data
+    networks:
+      - banco-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U banco_user -d db_clientes"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # base de datos cuentas
+  db-cuentas:
+    image: postgres:15-alpine
+    container_name: banco-db-cuentas
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: db_cuentas
+      POSTGRES_USER: banco_user
+      POSTGRES_PASSWORD: banco_pass_2024
+      PGDATA: /var/lib/postgresql/data/pgdata
+    ports:
+      - "5433:5432"
+    volumes:
+      - db-cuentas-data:/var/lib/postgresql/data
+    networks:
+      - banco-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U banco_user -d db_cuentas"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # configuracion de rabbitmq
+  rabbitmq:
+    image: rabbitmq:3.12-management-alpine
+    container_name: banco-rabbitmq
+    restart: unless-stopped
+    ports:
+      - "5672:5672"   
+      - "15672:15672"
+    environment:
+      RABBITMQ_DEFAULT_USER: banco
+      RABBITMQ_DEFAULT_PASS: banco123
+      RABBITMQ_DEFAULT_VHOST: /
+    volumes:
+      - rabbitmq-data:/var/lib/rabbitmq
+    networks:
+      - banco-network
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # microservicio cliente persona
+  ms-cliente-persona:
+    build:
+      context: ./ms-cliente-persona
+      dockerfile: Dockerfile
+    image: banco/ms-cliente-persona:1.0
+    container_name: ms-cliente-persona
+    restart: unless-stopped
+    ports:
+      - "8081:8081"
+    environment:
+      # base de datos clientes
+      SPRING_DATASOURCE_URL: jdbc:postgresql://db-clientes:5432/db_clientes
+      SPRING_DATASOURCE_USERNAME: banco_user
+      SPRING_DATASOURCE_PASSWORD: banco_pass_2024
+
+      # configuracion de jpa
+      SPRING_JPA_HIBERNATE_DDL_AUTO: update
+      SPRING_JPA_SHOW_SQL: "false"
+
+      # configuracion de rabbitmq
+      SPRING_RABBITMQ_HOST: rabbitmq
+      SPRING_RABBITMQ_PORT: 5672
+      SPRING_RABBITMQ_USERNAME: banco
+      SPRING_RABBITMQ_PASSWORD: banco123
+
+      # configuracion de la aplicacion
+      SERVER_PORT: 8081
+      SPRING_APPLICATION_NAME: ms-cliente-persona
+      SPRING_PROFILES_ACTIVE: prod
+    depends_on:
+      db-clientes:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    networks:
+      - banco-network
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8081/actuator/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # microservicio cuenta movimiento
+  ms-cuenta-movimiento:
+    build:
+      context: ./ms-cuenta-movimiento
+      dockerfile: Dockerfile
+    image: banco/ms-cuenta-movimiento:1.0
+    container_name: ms-cuenta-movimiento
+    restart: unless-stopped
+    ports:
+      - "8082:8082"
+    environment:
+      # base de datos cuentas
+      SPRING_DATASOURCE_URL: jdbc:postgresql://db-cuentas:5432/db_cuentas
+      SPRING_DATASOURCE_USERNAME: banco_user
+      SPRING_DATASOURCE_PASSWORD: banco_pass_2024
+
+      # configuracion de jpa
+      SPRING_JPA_HIBERNATE_DDL_AUTO: update
+      SPRING_JPA_SHOW_SQL: "false"
+
+      # configuracion de rabbitmq
+      SPRING_RABBITMQ_HOST: rabbitmq
+      SPRING_RABBITMQ_PORT: 5672
+      SPRING_RABBITMQ_USERNAME: banco
+      SPRING_RABBITMQ_PASSWORD: banco123
+
+      # comunicacion con ms-cliente-persona
+      CLIENTE_SERVICE_URL: http://ms-cliente-persona:8081
+
+      # configuracion de la aplicacion
+      SERVER_PORT: 8082
+      SPRING_APPLICATION_NAME: ms-cuenta-movimiento
+      SPRING_PROFILES_ACTIVE: prod
+    depends_on:
+      db-cuentas:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      ms-cliente-persona:
+        condition: service_healthy
+    networks:
+      - banco-network
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8082/actuator/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+# configuracion de redes
+networks:
+  banco-network:
+    driver: bridge
+    name: banco-network
+
+# configuracion de volumenes (persistencia de datos)
+volumes:
+  db-clientes-data:
+    driver: local
+    name: banco-db-clientes-data
+  db-cuentas-data:
+    driver: local
+    name: banco-db-cuentas-data
+  rabbitmq-data:
+    driver: local
+    name: banco-rabbitmq-data
